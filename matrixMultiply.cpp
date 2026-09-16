@@ -15,14 +15,12 @@
 int matrixMultiply(int N, const floatType* A, const floatType* B, floatType* C, int* args, int argCount) {		
 if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario without crashing.				 			 	    	 		   			 	      
 //WRITE YOUR CODE HERE
-
-	for (int i = 0; i < N; i++) {
+	memset(C, 0, N * N * sizeof(floatType));
+	for (int k = 0; k < N; k++) {
 		for (int j = 0; j < N; j++) {
-			floatType sum = 0;
-			for (int  k = 0; k < N; k++) {
-				sum += A[i * N + k] * B[k * N + j];
+			for (int i = 0; i < N; i++) {
+				C[j * N + i] += A[k * N + i] * B[j * N + k];
 			}
-			C[i * N + j] = sum;
 		}
 	}
 
