@@ -24,21 +24,45 @@ static inline __m256 complexMul(__m256 a, __m256 b) {
 int matrixMultiply(int N, const floatType* A, const floatType* B, floatType* C, int* args, int argCount) {		
 if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario without crashing.				 			 	    	 		   			 	      
 //WRITE YOUR CODE HERE
-	memset(C, 0, N * N * sizeof(floatType));
+	
 	#pragma omp parallel for num_threads(4)
-	for (int j = 0; j < N; j++) {
-		for (int k = 0; k < N; k++) {
-			floatType b = B[j * N + k];
-			__m256d bBroadcast = _mm256_broadcast_sd(reinterpret_cast<const double*>(&b));
-			__m256 bVec = _mm256_castpd_ps(bBroadcast);
-			for (int i = 0; i < N; i+= 4) {
-				__m256 aVec = _mm256_loadu_ps(reinterpret_cast<const float*>(A + k*N + i));
-				__m256 cVec = _mm256_loadu_ps(reinterpret_cast<const float*>(C + j*N + i));
-				cVec = _mm256_add_ps(cVec, complexMul(aVec, bVec));
-				_mm256_storeu_ps(reinterpret_cast<float*>(C + j*N + i), cVec);
-			}
-		}
+	for (int row = 0; row < N ; row++) {
+		memset(C + row * N, 0, N * sizeof(floatType));
 	}
+
+	const int blockJ = 32, blockK = 32;
+	const int blockI = 32;
+	
+	#pragma omp parallel for num_threads(4)
+		
+        for (int jj = 0; jj < N; jj += blockJ) {
+                int jEnd = jj + blockJ < N ? jj + blockJ : N;
+                for (int kk = 0; kk < N; kk += blockK) {
+                        int kEnd = kk + blockK < N ? kk + blockK : N;
+                        for (int j = jj; j < jEnd; j++) {
+                                for (int k = kk; k < kEnd; k++) {
+                                        floatType b = B[j * N + k];
+                                        __m256d bBroadcast = _mm256_broadcast_sd(reinterpret_cast<const double*>(&b));
+                                        __m256 bVec = _mm256_castpd_ps(bBroadcast);
+                                        for (int ii = 0; ii < N; ii += blockI) {
+                                                int iEnd = ii + blockI < N ? ii + blockI : N;
+                                                for (int i = ii; i + 4 <= iEnd; i += 4) {
+                                                        __m256 aVec = _mm256_loadu_ps(reinterpret_cast<const float*>(A + k*N + i));
+                                                        __m256 cVec = _mm256_loadu_ps(reinterpret_cast<const float*>(C + j*N + i));
+                                                        cVec = _mm256_add_ps(cVec, complexMul(aVec, bVec));
+                                                        _mm256_storeu_ps(reinterpret_cast<float*>(C + j*N + i), cVec);
+                                                }
+                                                for (int i = (N/4) * 4; i < N; i++) {
+                                                        C[j*N+i] += A[k*N+i] * b;
+                                                }
+                                        }
+                                }
+                        }
+                }
+        } 
+	
+
+
 
 return STUDENTID;				 			 	    	 		   			 	      
 
