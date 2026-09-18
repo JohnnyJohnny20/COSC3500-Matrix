@@ -9,6 +9,11 @@ static inline __m256 complexMul(__m256 a, __m256 b) {
 	return _mm256_addsub_ps(_mm256_mul_ps(aRe, b), _mm256_mul_ps(aIm, bSwap));
 }
 
+static inline __m256 broadcastComplex(floatType v) {
+	__m256d d = _mm256_broadcast_sd(reinterpret_cast<const double*>(&v));
+    	return _mm256_castpd_ps(d);
+}
+
 /**
 * @brief Implements an NxN matrix multiply C=A*B
 *				 			 	    	 		   			 	      
@@ -34,7 +39,46 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 	const int blockI = 32;
 	
 	#pragma omp parallel for num_threads(4)
-		
+	
+	for (int jj = 0; jj < N; jj += blockJ) {
+        int jEnd = jj + blockJ < N ? jj + blockJ : N;
+        for (int kk = 0; kk < N; kk += blockK) {
+                int kEnd = kk + blockK < N ? kk + blockK : N;
+                for (int j = jj; j < jEnd; j += 4) {          // widened to 4 at a time
+                        for (int k = kk; k < kEnd; k++) {      
+                                __m256 bVec0 = broadcastComplex(B[(j+0)*N+k]);
+                                __m256 bVec1 = broadcastComplex(B[(j+1)*N+k]);
+                                __m256 bVec2 = broadcastComplex(B[(j+2)*N+k]);
+                                __m256 bVec3 = broadcastComplex(B[(j+3)*N+k]);
+
+                                for (int ii = 0; ii < N; ii += blockI) {
+                                        int iEnd = ii + blockI < N ? ii + blockI : N;
+                                        for (int i = ii; i + 4 <= iEnd; i += 4) {
+                                                __m256 aVec = _mm256_loadu_ps(reinterpret_cast<const float*>(A + k*N + i)); // contiguous, loaded once, used 4x
+
+                                                __m256 c0 = _mm256_loadu_ps(reinterpret_cast<const float*>(C + (j+0)*N + i));
+                                                c0 = _mm256_add_ps(c0, complexMul(aVec, bVec0));
+                                                _mm256_storeu_ps(reinterpret_cast<float*>(C + (j+0)*N + i), c0);
+
+                                                __m256 c1 = _mm256_loadu_ps(reinterpret_cast<const float*>(C + (j+1)*N + i));
+                                                c1 = _mm256_add_ps(c1, complexMul(aVec, bVec1));
+                                                _mm256_storeu_ps(reinterpret_cast<float*>(C + (j+1)*N + i), c1);
+
+                                                __m256 c2 = _mm256_loadu_ps(reinterpret_cast<const float*>(C + (j+2)*N + i));
+                                                c2 = _mm256_add_ps(c2, complexMul(aVec, bVec2));
+                                                _mm256_storeu_ps(reinterpret_cast<float*>(C + (j+2)*N + i), c2);
+
+                                                __m256 c3 = _mm256_loadu_ps(reinterpret_cast<const float*>(C + (j+3)*N + i));
+                                                c3 = _mm256_add_ps(c3, complexMul(aVec, bVec3));
+                                                _mm256_storeu_ps(reinterpret_cast<float*>(C + (j+3)*N + i), c3);
+                                        }
+                                }
+                        }
+                }
+        }
+}	
+
+	/*		
         for (int jj = 0; jj < N; jj += blockJ) {
                 int jEnd = jj + blockJ < N ? jj + blockJ : N;
                 for (int kk = 0; kk < N; kk += blockK) {
@@ -59,7 +103,7 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
                                 }
                         }
                 }
-        } 
+        } */
 	
 
 
