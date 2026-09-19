@@ -1,6 +1,6 @@
 #include <matrixMultiply.h>
 #define STUDENTID 48448239 //DO NOT REMOVE
-
+#pragma GCC target("fma")
 
 static inline __m256 complexMul(__m256 a, __m256 b) {
 	__m256 aRe = _mm256_moveldup_ps(a);
@@ -16,6 +16,11 @@ static inline __m256 complexMulPrecomputed(__m256 aRe, __m256 aIm, __m256 b, __m
 static inline __m256 broadcastComplex(floatType v) {
 	__m256d d = _mm256_broadcast_sd(reinterpret_cast<const double*>(&v));
     	return _mm256_castpd_ps(d);
+}
+
+static inline __m256 fmaAddComplex(__m256 c, __m256 aRe, __m256 aIm, __m256 b, __m256 bSw) {
+        __m256 c_new = _mm256_fmadd_ps(aRe, b, c); // c = c + aRe*b
+        return _mm256_addsub_ps(c_new, _mm256_mul_ps(aIm, bSw)); // c_new +/- aIm*bSw
 }
 
 /**
@@ -103,37 +108,37 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 						aRe = _mm256_moveldup_ps(aVec);
         					aIm = _mm256_movehdup_ps(aVec);
 
-                                                c0 = _mm256_add_ps(c0, complexMulPrecomputed(aRe, aIm, bVec0, bSw0));
-                                                c1 = _mm256_add_ps(c1, complexMulPrecomputed(aRe, aIm, bVec1, bSw1));
-                                                c2 = _mm256_add_ps(c2, complexMulPrecomputed(aRe, aIm, bVec2, bSw2));
-                                                c3 = _mm256_add_ps(c3, complexMulPrecomputed(aRe, aIm, bVec3, bSw3));
+                                                c0 = fmaAddComplex(c0, aRe, aIm, bVec0, bSw0);
+                                                c1 = fmaAddComplex(c1, aRe, aIm, bVec1, bSw1);
+                                                c2 = fmaAddComplex(c2, aRe, aIm, bVec2, bSw2);
+                                                c3 = fmaAddComplex(c3, aRe, aIm, bVec3, bSw3);
 
 						aVec = _mm256_loadu_ps(reinterpret_cast<const float*>(A + (k+1)*N + i)); // contiguous, loaded once, used 4x
                                                 aRe = _mm256_moveldup_ps(aVec);
                                                 aIm = _mm256_movehdup_ps(aVec);
                                         	
-						c0 = _mm256_add_ps(c0, complexMulPrecomputed(aRe, aIm, bVec4, bSw4));
-                                                c1 = _mm256_add_ps(c1, complexMulPrecomputed(aRe, aIm, bVec5, bSw5));
-                                                c2 = _mm256_add_ps(c2, complexMulPrecomputed(aRe, aIm, bVec6, bSw6));
-                                                c3 = _mm256_add_ps(c3, complexMulPrecomputed(aRe, aIm, bVec7, bSw7));
+						c0 = fmaAddComplex(c0, aRe, aIm, bVec4, bSw4);
+                                                c1 = fmaAddComplex(c1, aRe, aIm, bVec5, bSw5);
+                                                c2 = fmaAddComplex(c2, aRe, aIm, bVec6, bSw6);
+                                                c3 = fmaAddComplex(c3, aRe, aIm, bVec7, bSw7);
 
 						aVec = _mm256_loadu_ps(reinterpret_cast<const float*>(A + (k+2)*N + i)); // contiguous, loaded once, used 4x
                                                 aRe = _mm256_moveldup_ps(aVec);
                                                 aIm = _mm256_movehdup_ps(aVec);
 
-                                                c0 = _mm256_add_ps(c0, complexMulPrecomputed(aRe, aIm, bVec8, bSw8));
-                                                c1 = _mm256_add_ps(c1, complexMulPrecomputed(aRe, aIm, bVec9, bSw9));
-                                                c2 = _mm256_add_ps(c2, complexMulPrecomputed(aRe, aIm, bVec10, bSw10));
-                                                c3 = _mm256_add_ps(c3, complexMulPrecomputed(aRe, aIm, bVec11, bSw11));
+                                                c0 = fmaAddComplex(c0, aRe, aIm, bVec8, bSw8);
+                                                c1 = fmaAddComplex(c1, aRe, aIm, bVec9, bSw9);
+                                                c2 = fmaAddComplex(c2, aRe, aIm, bVec10, bSw10);
+                                                c3 = fmaAddComplex(c3, aRe, aIm, bVec11, bSw11);
 
 						aVec = _mm256_loadu_ps(reinterpret_cast<const float*>(A + (k+3)*N + i)); // contiguous, loaded once, used 4x
                                                 aRe = _mm256_moveldup_ps(aVec);
                                                 aIm = _mm256_movehdup_ps(aVec);
 
-                                                c0 = _mm256_add_ps(c0, complexMulPrecomputed(aRe, aIm, bVec12, bSw12));
-                                                c1 = _mm256_add_ps(c1, complexMulPrecomputed(aRe, aIm, bVec13, bSw13));
-                                                c2 = _mm256_add_ps(c2, complexMulPrecomputed(aRe, aIm, bVec14, bSw14));
-                                                c3 = _mm256_add_ps(c3, complexMulPrecomputed(aRe, aIm, bVec15, bSw15));
+                                                c0 = fmaAddComplex(c0, aRe, aIm, bVec12, bSw12);
+                                                c1 = fmaAddComplex(c1, aRe, aIm, bVec13, bSw13);
+                                                c2 = fmaAddComplex(c2, aRe, aIm, bVec14, bSw14);
+                                                c3 = fmaAddComplex(c3, aRe, aIm, bVec15, bSw15);
 
 						_mm256_storeu_ps(reinterpret_cast<float*>(C + (j+0)*N + i), c0);
                                                 _mm256_storeu_ps(reinterpret_cast<float*>(C + (j+1)*N + i), c1);
