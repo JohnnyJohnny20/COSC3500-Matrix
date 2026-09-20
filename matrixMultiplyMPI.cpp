@@ -17,6 +17,32 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 
 //WRITE YOUR CODE HERE
 
+	int rank, size;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    	MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+	int colsPerProc = N / size;
+	int colStart = rank * colsPerProc;
+	int colEnd = colStart + colsPerProc;
+	
+	int bounds[2] = {colStart, colEnd};
+	
+	matrixMultiply(N, A, B, C, bounds, 2);
+	
+	int* recvcounts = new int[size];
+	int* displs = new int[size];
+
+	int bytesPerProc = colsPerProc * 2048 * sizeof(floatType);
+    
+    	for (int p = 0; p < size; p++) {
+        	recvcounts[p] = bytesPerProc;
+        	displs[p] = p * bytesPerProc;
+    	}
+
+    	// Gather the contiguous blocks of bytes into the full matrix C
+    	MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, 
+                   C, recvcounts, displs, 
+                   MPI_BYTE, MPI_COMM_WORLD);
 return STUDENTID;				 			 	    	 		   			 	      
 
 }				 			 	    	 		   			 	      

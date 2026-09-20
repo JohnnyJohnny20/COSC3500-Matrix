@@ -39,9 +39,17 @@ int matrixMultiply(int N, const floatType* A, const floatType* B, floatType* C, 
 if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario without crashing.				 			 	    	 		   			 	      
 //WRITE YOUR CODE HERE
 	
+	int jStart = 0;
+	int jEndLimit = N;
+	
+	if (argCount == 2) {
+        	jStart = args[0];
+        	jEndLimit = args[1];
+    	}
+		
 	#pragma omp parallel for num_threads(4)
-	for (int row = 0; row < N ; row++) {
-		memset(C + row * N, 0, N * sizeof(floatType));
+	for (int j = jStart; j < jEndLimit ; j++) {
+		memset(C + j * N, 0, N * sizeof(floatType));
 	}
 
 	const int blockJ = 32, blockK = 32;
@@ -49,8 +57,8 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 	
 	#pragma omp parallel for num_threads(4)
 	
-	for (int jj = 0; jj < N; jj += blockJ) {
-        int jEnd = jj + blockJ < N ? jj + blockJ : N;
+	for (int jj = jStart; jj < jEndLimit; jj += blockJ) {
+        int jEnd = jj + blockJ < jEndLimit ? jj + blockJ : jEndLimit;
         for (int kk = 0; kk < N; kk += blockK) {
                 int kEnd = kk + blockK < N ? kk + blockK : N;
                 for (int j = jj; j < jEnd; j += 4) {          // widened to 4 at a time
