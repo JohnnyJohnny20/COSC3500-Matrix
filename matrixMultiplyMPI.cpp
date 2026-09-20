@@ -43,6 +43,8 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
     	MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, 
                    C, recvcounts, displs, 
                    MPI_BYTE, MPI_COMM_WORLD);
+	delete[] recvcounts;
+	delete[] displs;
 return STUDENTID;				 			 	    	 		   			 	      
 
 }				 			 	    	 		   			 	      
