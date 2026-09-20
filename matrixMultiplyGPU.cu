@@ -2,6 +2,7 @@
 #define STUDENTID 48448239 //DO NOT REMOVE
 
 #define TILE_DIM 32
+#define BLOCK_ROWS 8
 
 /**
 * @brief Implements an NxN matrix multiply C=A*B
@@ -33,8 +34,8 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 	cudaMemcpy(d_A, A, bytes, cudaMemcpyHostToDevice);
 	cudaMemcpy(d_B, B, bytes, cudaMemcpyHostToDevice);
 
-	dim3 threadsPerBlock(32, 32);
-	dim3 numBlocks((N + threadsPerBlock.x - 1) / threadsPerBlock.x, (N + threadsPerBlock.y - 1) / threadsPerBlock.y);
+	dim3 threadsPerBlock(32, 8);
+	dim3 numBlocks((N + TILE_DIM - 1) / TILE_DIM, (N + TILE_DIM - 1) / TILE_DIM);
 
 	matrixMultiplyKernel_GPU<<<numBlocks, threadsPerBlock>>>(N, d_A, d_B, d_C, flag0, flag1, flag2);
 	
@@ -56,41 +57,63 @@ __global__ void matrixMultiplyKernel_GPU(int N, const floatTypeCUDA* A, const fl
 	int tx = threadIdx.x;
 	int ty = threadIdx.y;
 
-	int row = blockIdx.x * blockDim.x + threadIdx.x;
-	int col = blockIdx.y * blockDim.y + threadIdx.y;
+	int row = blockIdx.x * TILE_DIM + tx;
+	int col_start = blockIdx.y * TILE_DIM + ty;
 	
-	floatTypeCUDA sum = make_cuFloatComplex(0.0f, 0.0f);
+	floatTypeCUDA sum[4];
+
+	#pragma unroll
+	for (int i = 0; i < 4; ++i) {
+        	sum[i] = make_cuFloatComplex(0.0f, 0.0f);
+    	}
 	
 	int numPhases = (N + TILE_DIM - 1) / TILE_DIM;
 	for (int phase = 0; phase < numPhases; ++phase) {
 		
-		int k_A = phase * TILE_DIM + ty;
-        	int k_B = phase * TILE_DIM + tx;
-		
-		// 3. Collaborative Load A with bounds checking
-	        if (row < N && k_A < N) {
-	            s_A[ty][tx] = A[k_A * N + row]; 
-	        } else {
-	            s_A[ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
-	        }
-
-	        // Collaborative Load B with bounds checking
-	        if (k_B < N && col < N) {
-	            s_B[ty][tx] = B[col * N + k_B]; 
-	        } else {
-	            s_B[ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
-	        }
+		#pragma unroll
+		for (int i = 0; i < 4 ; ++i) {
+			int load_ty = ty + i * BLOCK_ROWS;
+			int k_A = phase * TILE_DIM + load_ty;
+	        	int k_B = phase * TILE_DIM + tx;
+			
+			
+			// 3. Collaborative Load A with bounds checking
+		        if (row < N && k_A < N) {
+		            s_A[load_ty][tx] = A[k_A * N + row]; 
+		        } else {
+		            s_A[load_ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
+		        }
+			
+			int load_col = blockIdx.y * TILE_DIM + load_ty;
+		        // Collaborative Load B with bounds checking
+		        if (k_B < N && load_col < N) {
+		            s_B[load_ty][tx] = B[load_col * N + k_B]; 
+		        } else {
+		            s_B[load_ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
+		        }
+		}
 		
 		__syncthreads();
-	
+		
+		#pragma unroll
 		for (int k = 0; k < TILE_DIM; ++k) {
-			sum = cuCaddf(sum, cuCmulf(s_A[k][tx], s_B[ty][k]));
+			floatTypeCUDA a_val = s_A[k][tx];
+				
+			#pragma unroll
+			for (int i = 0; i < 4; ++i) {
+				floatTypeCUDA b_val = s_B[ty + i * BLOCK_ROWS][k];
+				sum[i] = cuCaddf(sum[i], cuCmulf(a_val, b_val));
+			}
 		}
 		
 		__syncthreads();
 	}
 	
-	if (row < N && col < N) {
-        	C[col * N + row] = sum;
-    	}
+	#pragma unroll
+	for (int i = 0; i < 4; ++i) {
+		int current_col = col_start + i * BLOCK_ROWS;
+		if (row < N && current_col < N) {
+        		C[current_col * N + row] = sum[i];
+    		}
+	}
 }				 			 	    	 		   			 	      
