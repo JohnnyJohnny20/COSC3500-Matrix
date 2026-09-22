@@ -38,6 +38,12 @@ static void packXPanel(const floatType* X, int N, int ii, int rows, int kk, int 
 	}
 }
 
+static void packYPanel(const floatType* Y, int N, int kk, int cols, floatType* Yp) {
+	for (int kL = 0; kL < cols; kL++) {
+		memcpy(Yp + kL * N, Y + (kk + kL) * N, N * sizeof(floatType));
+	}
+}
+
 static inline void microKernel4x4(const floatType* Y, int N, int j, int k, int i, floatType* C, const __m256 bVec[16], const __m256 bSw[16]) {
 	__m256 c0 = _mm256_loadu_ps(reinterpret_cast<const float*>(C + (i+0)*N + j));
         __m256 c1 = _mm256_loadu_ps(reinterpret_cast<const float*>(C + (i+1)*N + j));
@@ -123,20 +129,23 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 
 	const int blockJ = 32, blockK = 32;
 	const int blockI = 32;
-	
+
+	floatType* Yp = (floatType*)malloc(blockK * N * sizeof(floatType));
+	for (int kk = 0; kk < N; kk += blockK) {
+        	int kEnd = kk + blockK < N ? kk + blockK : N;
+                int cols = kEnd - kk;
+		packYPanel(Y, N, kk, cols, Yp);
+
 	#pragma omp parallel for num_threads(4)
 	
 	for (int ii = iStart; ii < iEndLimit; ii += blockI) {
 		int iEnd = ii + blockI < iEndLimit ? ii + blockI : iEndLimit;
 		int rows = iEnd - ii;
 
-        	for (int kk = 0; kk < N; kk += blockK) {
-                	int kEnd = kk + blockK < N ? kk + blockK : N;
-			int cols = kEnd - kk;
-
 			floatType Xp[blockI * blockK];
 			packXPanel(X, N, ii, rows, kk, cols, Xp);
 
+			
 				for (int i = ii; i + 4 <= iEnd; i += 4) {          // widened to 4 at a time
 	                        	for (int k = kk; k < kEnd; k+=4) {
 						int iL = i - ii, kL = k - kk;
@@ -164,7 +173,7 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 	                                	for (int jj = 0; jj < N; jj += blockJ) {
 	                                		int jEnd = jj + blockJ < N ? jj + blockJ : N;
 								for (int j = jj; j + 4 <= jEnd; j += 4) {
-				                                        microKernel4x4(Y, N, j, k, i, C, bVec, bSw);
+				                                        microKernel4x4(Yp, N, j, kL, i, C, bVec, bSw);
 								}
                                 }
                         }
@@ -175,7 +184,7 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
                        
 	
 
-
+free(Yp);
 
 return STUDENTID;				 			 	    	 		   			 	      
 
