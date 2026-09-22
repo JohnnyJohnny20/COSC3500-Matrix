@@ -1,6 +1,6 @@
 #include <matrixMultiply.h>
 #define STUDENTID 48448239 //DO NOT REMOVE
-#pragma GCC target("fma")
+#pragma GCC target("avx2,fma")
 
 static inline __m256 complexMul(__m256 a, __m256 b) {
 	__m256 aRe = _mm256_moveldup_ps(a);
