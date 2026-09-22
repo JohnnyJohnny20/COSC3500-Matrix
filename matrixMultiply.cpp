@@ -24,9 +24,18 @@ static inline __m256 fmaAddComplex(__m256 c, __m256 aRe, __m256 aIm, __m256 b, _
 }
 
 // Refactored helper functions by Claude
-static inline void loadBRow(const floatType* B, int N, int row, int col, __m256& bVec, __m256& bSw) {
-	bVec = broadcastComplex(B[row * N + col]);
+static inline void loadBRow(const floatType* Xp, int rows, int rLocal, int cLocal, __m256& bVec, __m256& bSw) {
+	bVec = broadcastComplex(Xp[cLocal * rows + rLocal]);
     	bSw  = _mm256_permute_ps(bVec, 0xB1);
+}
+
+// Pack scratch buffer
+static void packXPanel(const floatType* X, int N, int ii, int rows, int kk, int cols, floatType* Xp) {
+	for (int c = 0; c < cols; c++) {
+		for (int r = 0; r < rows; r++) {
+			Xp[c * rows + r] = X[(ii + r) * N + (kk + c)];
+		}
+	}
 }
 
 static inline void microKernel4x4(const floatType* Y, int N, int j, int k, int i, floatType* C, const __m256 bVec[16], const __m256 bSw[16]) {
@@ -119,39 +128,44 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
 	
 	for (int ii = iStart; ii < iEndLimit; ii += blockI) {
 		int iEnd = ii + blockI < iEndLimit ? ii + blockI : iEndLimit;
+		int rows = iEnd - ii;
 
         	for (int kk = 0; kk < N; kk += blockK) {
                 	int kEnd = kk + blockK < N ? kk + blockK : N;
-	
+			int cols = kEnd - kk;
+
+			floatType Xp[blockI * blockK];
+			packXPanel(X, N, ii, rows, kk, cols, Xp);
+
 				for (int i = ii; i + 4 <= iEnd; i += 4) {          // widened to 4 at a time
 	                        	for (int k = kk; k < kEnd; k+=4) {
+						int iL = i - ii, kL = k - kk;
+						__m256 bVec[16], bSw[16];
+		                                loadBRow(Xp, rows, iL+0, kL, bVec[0], bSw[0]);
+						loadBRow(Xp, rows, iL+1, kL, bVec[1], bSw[1]);
+						loadBRow(Xp, rows, iL+2, kL, bVec[2], bSw[2]);
+						loadBRow(Xp, rows, iL+3, kL, bVec[3], bSw[3]);
 
-					__m256 bVec[16], bSw[16];
-	                                loadBRow(X, N, i+0, k, bVec[0], bSw[0]);
-					loadBRow(X, N, i+1, k, bVec[1], bSw[1]);
-					loadBRow(X, N, i+2, k, bVec[2], bSw[2]);
-					loadBRow(X, N, i+3, k, bVec[3], bSw[3]);
+						loadBRow(Xp, rows, iL+0, kL+1, bVec[4], bSw[4]);
+	                                        loadBRow(Xp, rows, iL+1, kL+1, bVec[5], bSw[5]);
+	                                        loadBRow(Xp, rows, iL+2, kL+1, bVec[6], bSw[6]);
+	                                        loadBRow(Xp, rows, iL+3, kL+1, bVec[7], bSw[7]);
 
-					loadBRow(X, N, i+0, k+1, bVec[4], bSw[4]);
-                                        loadBRow(X, N, i+1, k+1, bVec[5], bSw[5]);
-                                        loadBRow(X, N, i+2, k+1, bVec[6], bSw[6]);
-                                        loadBRow(X, N, i+3, k+1, bVec[7], bSw[7]);
+	                                        loadBRow(Xp, rows, iL+0, kL+2, bVec[8], bSw[8]);
+	                                        loadBRow(Xp, rows, iL+1, kL+2, bVec[9], bSw[9]);
+	                                        loadBRow(Xp, rows, iL+2, kL+2, bVec[10], bSw[10]);
+	                                        loadBRow(Xp, rows, iL+3, kL+2, bVec[11], bSw[11]);
 
-                                        loadBRow(X, N, i+0, k+2, bVec[8], bSw[8]);
-                                        loadBRow(X, N, i+1, k+2, bVec[9], bSw[9]);
-                                        loadBRow(X, N, i+2, k+2, bVec[10], bSw[10]);
-                                        loadBRow(X, N, i+3, k+2, bVec[11], bSw[11]);
+	                                        loadBRow(Xp, rows, iL+0, kL+3, bVec[12], bSw[12]);
+	                                        loadBRow(Xp, rows, iL+1, kL+3, bVec[13], bSw[13]);
+	                                        loadBRow(Xp, rows, iL+2, kL+3, bVec[14], bSw[14]);
+	                                        loadBRow(Xp, rows, iL+3, kL+3, bVec[15], bSw[15]);
 
-                                        loadBRow(X, N, i+0, k+3, bVec[12], bSw[12]);
-                                        loadBRow(X, N, i+1, k+3, bVec[13], bSw[13]);
-                                        loadBRow(X, N, i+2, k+3, bVec[14], bSw[14]);
-                                        loadBRow(X, N, i+3, k+3, bVec[15], bSw[15]);
-
-                                	for (int jj = 0; jj < N; jj += blockJ) {
-                                	int jEnd = jj + blockJ < N ? jj + blockJ : N;
-					for (int j = jj; j + 4 <= jEnd; j += 4) {
-	                                        microKernel4x4(Y, N, j, k, i, C, bVec, bSw);
-					}
+	                                	for (int jj = 0; jj < N; jj += blockJ) {
+	                                		int jEnd = jj + blockJ < N ? jj + blockJ : N;
+								for (int j = jj; j + 4 <= jEnd; j += 4) {
+				                                        microKernel4x4(Y, N, j, k, i, C, bVec, bSw);
+								}
                                 }
                         }
                 }
