@@ -23,6 +23,11 @@ static inline __m256 fmaAddComplex(__m256 c, __m256 aRe, __m256 aIm, __m256 b, _
         return _mm256_addsub_ps(c_new, _mm256_mul_ps(aIm, bSw)); // c_new +/- aIm*bSw
 }
 
+static inline void loadBRow(const floatType* B, int N, int row, int col, __m256& bVec, __m256& bSw) {
+	bVec = broadcastComplex(B[row * N + col]);
+    	bSw  = _mm256_permute_ps(bVec, 0xB1);
+}
+
 /**
 * @brief Implements an NxN matrix multiply C=A*B
 *				 			 	    	 		   			 	      
@@ -67,46 +72,33 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
                 	int kEnd = kk + blockK < N ? kk + blockK : N;
 	
 				for (int i = ii; i + 4 <= iEnd; i += 4) {          // widened to 4 at a time
-	                        	for (int k = kk; k < kEnd; k+=4) {      
-	                                __m256 bVec0 = broadcastComplex(X[(i+0)*N+k]);
-	                                __m256 bVec1 = broadcastComplex(X[(i+1)*N+k]);
-	                                __m256 bVec2 = broadcastComplex(X[(i+2)*N+k]);
-	                                __m256 bVec3 = broadcastComplex(X[(i+3)*N+k]);
-					__m256 bSw0 = _mm256_permute_ps(bVec0, 0xB1);
-					__m256 bSw1 = _mm256_permute_ps(bVec1, 0xB1);
-					__m256 bSw2 = _mm256_permute_ps(bVec2, 0xB1);
-					__m256 bSw3 = _mm256_permute_ps(bVec3, 0xB1);
+	                        	for (int k = kk; k < kEnd; k+=4) {
 
-					__m256 bVec4 = broadcastComplex(X[(i+0)*N+k+1]);
-	                                __m256 bVec5 = broadcastComplex(X[(i+1)*N+k+1]);
-	                                __m256 bVec6 = broadcastComplex(X[(i+2)*N+k+1]);
-	                                __m256 bVec7 = broadcastComplex(X[(i+3)*N+k+1]);
-	                                __m256 bSw4 = _mm256_permute_ps(bVec4, 0xB1);
-	                                __m256 bSw5 = _mm256_permute_ps(bVec5, 0xB1);
-	                                __m256 bSw6 = _mm256_permute_ps(bVec6, 0xB1);
-	                                __m256 bSw7 = _mm256_permute_ps(bVec7, 0xB1);
-						
-					// --- Precompute B for step k+2 ---
-	                                __m256 bVec8 = broadcastComplex(X[(i+0)*N+k+2]);
-	                                __m256 bVec9 = broadcastComplex(X[(i+1)*N+k+2]);
-	                                __m256 bVec10 = broadcastComplex(X[(i+2)*N+k+2]);
-	                                __m256 bVec11 = broadcastComplex(X[(i+3)*N+k+2]);
-	                                __m256 bSw8 = _mm256_permute_ps(bVec8, 0xB1);
-	                                __m256 bSw9 = _mm256_permute_ps(bVec9, 0xB1);
-	                                __m256 bSw10 = _mm256_permute_ps(bVec10, 0xB1);
-	                                __m256 bSw11 = _mm256_permute_ps(bVec11, 0xB1);
+					__m256 bVec0, bVec1,bVec2, bVec3, bSw0, bSw1, bSw2, bSw3;
+	                                loadBRow(X, N, i+0, k, bVec0, bSw0);
+					loadBRow(X, N, i+1, k, bVec1, bSw1);
+					loadBRow(X, N, i+2, k, bVec2, bSw2);
+					loadBRow(X, N, i+3, k, bVec3, bSw3);
 
-	                                // --- Precompute B for step k+3 ---
-	                                __m256 bVec12 = broadcastComplex(X[(i+0)*N+k+3]);
-	                                __m256 bVec13 = broadcastComplex(X[(i+1)*N+k+3]);
-	                                __m256 bVec14 = broadcastComplex(X[(i+2)*N+k+3]);
-	                                __m256 bVec15 = broadcastComplex(X[(i+3)*N+k+3]);
-	                                __m256 bSw12 = _mm256_permute_ps(bVec12, 0xB1);
-	                                __m256 bSw13 = _mm256_permute_ps(bVec13, 0xB1);
-	                                __m256 bSw14 = _mm256_permute_ps(bVec14, 0xB1);
-	                                __m256 bSw15 = _mm256_permute_ps(bVec15, 0xB1);
+					__m256 bVec4, bVec5, bVec6, bVec7, bSw4, bSw5, bSw6, bSw7;
+					loadBRow(X, N, i+0, k+1, bVec4, bSw4);
+                                        loadBRow(X, N, i+1, k+1, bVec5, bSw5);
+                                        loadBRow(X, N, i+2, k+1, bVec6, bSw6);
+                                        loadBRow(X, N, i+3, k+1, bVec7, bSw7);
 					
-                                	 for (int jj = 0; jj < N; jj += blockJ) {
+					__m256 bVec8, bVec9, bVec10, bVec11, bSw8, bSw9, bSw10, bSw11;
+                                        loadBRow(X, N, i+0, k+2, bVec8, bSw8);
+                                        loadBRow(X, N, i+1, k+2, bVec9, bSw9);
+                                        loadBRow(X, N, i+2, k+2, bVec10, bSw10);
+                                        loadBRow(X, N, i+3, k+2, bVec11, bSw11);
+
+					__m256 bVec12, bVec13, bVec14, bVec15, bSw12, bSw13, bSw14, bSw15;
+                                        loadBRow(X, N, i+0, k+3, bVec12, bSw12);
+                                        loadBRow(X, N, i+1, k+3, bVec13, bSw13);
+                                        loadBRow(X, N, i+2, k+3, bVec14, bSw14);
+                                        loadBRow(X, N, i+3, k+3, bVec15, bSw15);
+
+                                	for (int jj = 0; jj < N; jj += blockJ) {
                                 	int jEnd = jj + blockJ < N ? jj + blockJ : N;
 					for (int j = jj; j + 4 <= jEnd; j += 4) {
 	                                        
