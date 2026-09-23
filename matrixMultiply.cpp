@@ -1,3 +1,22 @@
+/**
+ * @file matrixMultiply.cpp
+ * @brief Assignment - CPU version
+ *
+ * @author Johnny Hoang s48448239
+ *
+ * @section AI Usage
+ * 1. Google Gemini was used to debug, refactor, calculate pointer arithmetic
+ * and aid in implementing GotoBLAS/Blis architecture.
+ *
+ * 2. Claude was used to find sources, debug, refactor, conceptual explanations,
+ * and review code.
+ *
+ * @section References
+ * 1. "BLISlab: A Sandbox for Optimizing GEMM" GitHub
+ *    Link: https://github.com/flame/blislab/tree/master/
+ */
+
+
 #include <matrixMultiply.h>
 #define STUDENTID 48448239 //DO NOT REMOVE
 #pragma GCC target("avx2,fma")
@@ -8,37 +27,17 @@
 #define KC 256
 #define NC 512
 
-static inline __m256 complexMul(__m256 a, __m256 b) {
-	__m256 aRe = _mm256_moveldup_ps(a);
-	__m256 aIm = _mm256_movehdup_ps(a);
-	__m256 bSwap = _mm256_permute_ps(b, 0xB1);
-	return _mm256_addsub_ps(_mm256_mul_ps(aRe, b), _mm256_mul_ps(aIm, bSwap));
-}
-
-static inline __m256 complexMulPrecomputed(__m256 aRe, __m256 aIm, __m256 b, __m256 bSw) {
-	return _mm256_addsub_ps(_mm256_mul_ps(aRe, b), _mm256_mul_ps(aIm, bSw));
-}
-
-static inline __m256 broadcastComplex(floatType v) {
-	__m256d d = _mm256_broadcast_sd(reinterpret_cast<const double*>(&v));
-    	return _mm256_castpd_ps(d);
-}
-
-static inline __m256 fmaAddComplex(__m256 c, __m256 aRe, __m256 aIm, __m256 b, __m256 bSw) {
-        __m256 c_new = _mm256_fmadd_ps(aRe, b, c); // c = c + aRe*b
-        return _mm256_addsub_ps(c_new, _mm256_mul_ps(aIm, bSw)); // c_new +/- aIm*bSw
-}
-
-// Refactored helper functions by Claude
-static inline void loadBRow(const floatType* Xp, int rows, int rLocal, int cLocal, __m256& bVec, __m256& bSw) {
-	bVec = broadcastComplex(Xp[cLocal * rows + rLocal]);
-    	bSw  = _mm256_permute_ps(bVec, 0xB1);
-}
-
+/**
+* @brief: Interleaves seperate real and imaginary SIMD vectors, accumulates into
+* 	  main memory C and writes back.
+*
+* @note: Implemented with direct Gemini assitance to find available methods
+* 	 and sequence to recombine de-interleaved AVX2 registers
+*/
 static inline void interleave_and_add(__m256 cr, __m256 ci, float* C) {
-        __m256 lo = _mm256_unpacklo_ps(cr, ci);
+        __m256 lo = _mm256_unpacklo_ps(cr, ci); // interleave
         __m256 hi = _mm256_unpackhi_ps(cr, ci);
-        __m256 o0 = _mm256_permute2f128_ps(lo, hi, 0x20);
+        __m256 o0 = _mm256_permute2f128_ps(lo, hi, 0x20); // reorganize
         __m256 o1 = _mm256_permute2f128_ps(lo, hi, 0x31);
         o0 = _mm256_add_ps(o0, _mm256_loadu_ps(C));
         o1 = _mm256_add_ps(o1, _mm256_loadu_ps(C + 8));
@@ -46,7 +45,14 @@ static inline void interleave_and_add(__m256 cr, __m256 ci, float* C) {
         _mm256_storeu_ps(C + 8, o1);
 }
 
-// Pack scratch buffer
+
+/**
+* @brief: Packs 4 rows of X into a contiguous L2 cache buffer, de-interleaving
+*         complex values into separate real and imaginary blocks.
+*
+* @note: Conceptual panel packing adapted from BLISlab tutorial.pdf Section 4.1 (Ac buffer)
+*	 AI assisted in pointer arithmetic.
+*/
 static void packX_4xK(const floatType* X, int N, int i, int kk, int cols, float* Xp) {
 	const float* Xf = reinterpret_cast<const float*>(X);
 	for (int c = 0; c < cols; c++) {
@@ -57,6 +63,13 @@ static void packX_4xK(const floatType* X, int N, int i, int kk, int cols, float*
 	}
 }
 
+/**
+* @brief: Packs 8 rows of Y into a contiguous L2 cache buffer, de-interleaving
+*         complex values into separate real and imaginary blocks.
+*
+* @note: Conceptual panel packing adapted from BLISlab tutorial.pdf Section 4.1 (Bc buffer)
+*	 AI assited in pointer arithmetic.
+*/
 static void packY_Kx8(const floatType* Y, int N, int kk, int cols, int j, float* Yp) {
 	const float* Yf = reinterpret_cast<const float*>(Y);
 	for (int k = 0; k < cols; k++) {
@@ -67,6 +80,14 @@ static void packY_Kx8(const floatType* Y, int N, int kk, int cols, int j, float*
         }
 }
 
+/**
+ * @brief 4x8 microkernel executing the inner KC reduction loop.
+ *
+ * @note Corresponds to the micro-kernel loop layer in BLISlab tutorial.pdf Section 4.1.
+ *       Uses the rank-1 update broadcast strategy detailed in Section 4.3
+ *       (Advanced techniques), adapted for de-interleaved complex arithmetic
+ *       with direct AI assistance.
+ */
 static inline void microKernel4x8(floatType* C, int N, int i, int j, const float* Xp, const float* Yp) {
 
 	__m256 c0Re = _mm256_setzero_ps(), c0Im = _mm256_setzero_ps();
@@ -117,66 +138,67 @@ static inline void microKernel4x8(floatType* C, int N, int i, int j, const float
 * @param[in] args : pointer to array of integers which can be used for debugging and performance tweaks. Optional. If unused, set to zero
 * @param[in] argCount : the length of the flags array
 * @return : your student ID
-*				 			 	    	 		   			 	      
-* */
+*
+* @note Implements the 5-loop cache-blocking hierarchy (NC -> KC -> MC -> NR -> MR)
+*       described in BLISlab Section tutorial.pdf 4.1 (Step 3: Blocking for Multiple Levels
+*       of Cache), parallelized using OpenMP as outlined in Section 5				 			 	    	 		   			 	      
+*/
 int matrixMultiply(int N, const floatType* A, const floatType* B, floatType* C, int* args, int argCount) {		
 if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario without crashing.				 			 	    	 		   			 	      
 //WRITE YOUR CODE HERE
 	
-	const floatType* X = B;
+	const floatType* X = B; // transpose
 	const floatType* Y = A;
 	
-	int iStart = 0;
+	int iStart = 0; // for MPI
 	int iEndLimit = N;
 	
 	if (argCount == 2) {
         	iStart = args[0];
         	iEndLimit = args[1];
     	}
-		
 
+	// Zero C
 	#pragma omp parallel for num_threads(4)
 	for (int i = iStart; i < iEndLimit ; i++) {
 		memset(C + i * N, 0, N * sizeof(floatType));
 	}
 
-	const int blockJ = 32, blockK = 32;
-	const int blockI = 32;
-
 	float* YpGlobal = (float*)_mm_malloc((NC / NR) * KC * 16 * sizeof(float), 64);
 
-
-	for (int jj = 0; jj < N; jj += NC) {
-                for (int kk = 0; kk < N; kk += KC) {
+	// GotoBLAS/Blis hierarchy structure for optimal cache hits
+	// See BLISlab tutorial.pdf section 4.1 figure 3
+	for (int jc = 0; jc < N; jc += NC) {
+                for (int pc = 0; pc < N; pc += KC) {
 		
 			// Pack Y globally using the helper function
                         #pragma omp parallel for num_threads(4)
                         for (int j = 0; j < NC; j += NR) {
                                 float* YpLocal = YpGlobal + (j / NR) * KC * 16;
-                                packY_Kx8(Y, N, kk, KC, jj + j, YpLocal);
+                                packY_Kx8(Y, N, pc, KC, jc + j, YpLocal);
                         }
 		
                 	#pragma omp parallel for num_threads(4)
-                        for (int ii = iStart; ii < iEndLimit; ii += MC) {
+                        for (int ic = iStart; ic < iEndLimit; ic += MC) {
                                 float Xp[MC * KC * 2];
 
                                 // Pack X locally using the helper function
                                 for (int i = 0; i < MC; i += MR) {
                                         float* XpLocal = Xp + (i / MR) * KC * 8;
-                                        packX_4xK(X, N, ii + i, kk, KC, XpLocal);
+                                        packX_4xK(X, N, ic + i, pc, KC, XpLocal);
                                 }
 
-                                for (int j = 0; j < NC; j += NR) {
-                                        const float* YpLocal = YpGlobal + (j / NR) * KC * 16;
+                                for (int jr = 0; jr < NC; jr += NR) {
+                                        const float* YpLocal = YpGlobal + (jr / NR) * KC * 16;
                 
-                                for (int i = 0; i < MC; i += MR) {
-                                        const float* XpLocal = Xp + (i / MR) * KC * 8;
-                                        microKernel4x8(C, N, ii + i, jj + j, XpLocal, YpLocal);
-				}
-                        }
-                }
-        }
-}
+	                                for (int ir = 0; ir < MC; ir += MR) {
+	                                        const float* XpLocal = Xp + (ir / MR) * KC * 8;
+	                                        microKernel4x8(C, N, ic + ir, jc + jr, XpLocal, YpLocal);
+					}
+                        	}
+                	}
+        	}
+	}
 
 
 _mm_free(YpGlobal);
