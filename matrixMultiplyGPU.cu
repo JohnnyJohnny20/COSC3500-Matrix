@@ -4,6 +4,12 @@
 #define TILE_DIM 32
 #define BLOCK_ROWS 8
 
+#define BM 64
+#define BN 64
+#define BK 8
+#define TM 4
+#define TN 4
+
 /**
 * @brief Implements an NxN matrix multiply C=A*B
 *				 			 	    	 		   			 	      
@@ -24,83 +30,124 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
     	int flag1 = (flagCount > 1) ? flags[1] : 0;
     	int flag2 = (flagCount > 2) ? flags[2] : 0;
 
+	static floatTypeCUDA *d_A = nullptr, *d_B = nullptr, *d_C = nullptr;
+	static bool initialized = false;
 	size_t bytes = (size_t)N * N * sizeof(floatTypeCUDA);
-	floatTypeCUDA *d_A, *d_B, *d_C;
-	
-	cudaMalloc(&d_A, bytes);
-	cudaMalloc(&d_B, bytes);
-	cudaMalloc(&d_C, bytes);
 
-	cudaMemcpy(d_A, A, bytes, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_B, B, bytes, cudaMemcpyHostToDevice);
+	if (!initialized) {
+		cudaMalloc(&d_A, bytes);
+	        cudaMalloc(&d_B, bytes);
+	        cudaMalloc(&d_C, bytes);
+	        initialized = true;
+	}
 
-	dim3 threadsPerBlock(32, 8);
-	dim3 numBlocks((N + TILE_DIM - 1) / TILE_DIM, (N + TILE_DIM - 1) / TILE_DIM);
+	// Transpose
+	cudaMemcpy(d_A, B, bytes, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_B, A, bytes, cudaMemcpyHostToDevice);
+
+	dim3 threadsPerBlock(256);
+	dim3 numBlocks(N / BM, N / BN);
 
 	matrixMultiplyKernel_GPU<<<numBlocks, threadsPerBlock>>>(N, d_A, d_B, d_C, flag0, flag1, flag2);
 	
 	cudaDeviceSynchronize();
 	cudaMemcpy(C, d_C, bytes, cudaMemcpyDeviceToHost);
-	cudaFree(d_A);
-    	cudaFree(d_B);
-    	cudaFree(d_C);
+
 return STUDENTID;				 			 	    	 		   			 	      
 
 }				 			 	    	 		   			 	      
 
 //The kernel (device code) parameters have been setup almost the same as the host code, except the flags are passed in individually rather than as a pointer. This is done just so you don't have to copy the parameters to GPU memory first, you'll be able to pass in up to 3 on the function call.				 			 	    	 		   			 	      
 __global__ void matrixMultiplyKernel_GPU(int N, const floatTypeCUDA* A, const floatTypeCUDA* B, floatTypeCUDA* C, int flag0, int flag1, int flag2){				 			 	    	 		   			 	      
-	
-	__shared__ floatTypeCUDA s_A[TILE_DIM][TILE_DIM];
-	__shared__ floatTypeCUDA s_B[TILE_DIM][TILE_DIM];
-	
-	int tx = threadIdx.x;
-	int ty = threadIdx.y;
+	// Block mappings (Row-Major)
+    const uint cCol = blockIdx.x;
+    const uint cRow = blockIdx.y;
 
-	int row = blockIdx.x * TILE_DIM + tx;
-	int col_start = blockIdx.y * TILE_DIM + ty;
-	
-	floatTypeCUDA sum[4];
+    // 256 threads map to a 16x16 grid of outputs (each computing 4x4)
+    const uint threadCol = threadIdx.x % (BN / TN); // 0 to 15
+    const uint threadRow = threadIdx.x / (BN / TN); // 0 to 15
 
-	#pragma unroll
-	for (int i = 0; i < 4; ++i) {
-        	sum[i] = make_cuFloatComplex(0.0f, 0.0f);
-    	}
-	
-	int numPhases = N / TILE_DIM;
-	for (int phase = 0; phase < numPhases; ++phase) {
-		
-		#pragma unroll
-		for (int i = 0; i < 4 ; ++i) {
-			int load_ty = ty + i * BLOCK_ROWS;
-			int k_A = phase * TILE_DIM + load_ty;
-	        	int k_B = phase * TILE_DIM + tx;
-		        s_A[load_ty][tx] = __ldg(&A[k_A * N + row]);
+    // Flattened SMEM caches (Kernel 5 style)
+    __shared__ floatTypeCUDA As[BM * BK];
+    __shared__ floatTypeCUDA Bs[BK * BN];
 
-			int load_col = blockIdx.y * TILE_DIM + load_ty;
-		        s_B[load_ty][tx] = __ldg(&B[load_col * N + k_B]);
-		}
-		
-		__syncthreads();
-		
-		#pragma unroll
-		for (int k = 0; k < TILE_DIM; ++k) {
-			floatTypeCUDA a_val = s_A[k][tx];
-				
-			#pragma unroll
-			for (int i = 0; i < 4; ++i) {
-				floatTypeCUDA b_val = s_B[ty + i * BLOCK_ROWS][k];
-				sum[i] = cuCaddf(sum[i], cuCmulf(a_val, b_val));
-			}
-		}
-		
-		__syncthreads();
-	}
-	
-	#pragma unroll
-	for (int i = 0; i < 4; ++i) {
-		int current_col = col_start + i * BLOCK_ROWS;
-        	C[current_col * N + row] = sum[i];
+    // Thread loading strides
+    const uint innerRowA = threadIdx.x / BK;
+    const uint innerColA = threadIdx.x % BK;
+    const uint strideA = 256 / BK; // 32
 
-	}
+    const uint innerRowB = threadIdx.x / BN;
+    const uint innerColB = threadIdx.x % BN;
+    const uint strideB = 256 / BN; // 4
+
+    // Thread-local register cache
+    floatTypeCUDA threadResults[TM * TN];
+    #pragma unroll
+    for (int i = 0; i < TM * TN; ++i) {
+        threadResults[i] = make_cuFloatComplex(0.0f, 0.0f);
+    }
+
+    floatTypeCUDA regM[TM];
+    floatTypeCUDA regN[TN];
+
+    int numPhases = N / BK;
+    for (uint phase = 0; phase < numPhases; ++phase) {
+        
+        // 1. GMEM -> SMEM Load Phase (Coalesced via Transpose Trick)
+        #pragma unroll
+        for (uint loadOffset = 0; loadOffset < BM; loadOffset += strideA) {
+            int g_row = cRow * BM + innerRowA + loadOffset;
+            int g_col = phase * BK + innerColA;
+            As[(innerRowA + loadOffset) * BK + innerColA] = __ldg(&A[g_row * N + g_col]);
+        }
+
+        #pragma unroll
+        for (uint loadOffset = 0; loadOffset < BK; loadOffset += strideB) {
+            int g_row = phase * BK + innerRowB + loadOffset;
+            int g_col = cCol * BN + innerColB;
+            Bs[(innerRowB + loadOffset) * BN + innerColB] = __ldg(&B[g_row * N + g_col]);
+        }
+
+        __syncthreads();
+
+        // 2. Math Phase: Kernel 5 2D Blocktiling
+        #pragma unroll
+        for (uint dotIdx = 0; dotIdx < BK; ++dotIdx) {
+            
+            // Block into registers
+            #pragma unroll
+            for (uint i = 0; i < TM; ++i) {
+                regM[i] = As[(threadRow * TM + i) * BK + dotIdx];
+            }
+
+            #pragma unroll
+            for (uint i = 0; i < TN; ++i) {
+                regN[i] = Bs[dotIdx * BN + threadCol * TN + i];
+            }
+
+            // Standard cuCaddf/cuCmulf math
+            #pragma unroll
+            for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
+                #pragma unroll
+                for (uint resIdxN = 0; resIdxN < TN; ++resIdxN) {
+                    threadResults[resIdxM * TN + resIdxN] = cuCaddf(
+                        threadResults[resIdxM * TN + resIdxN],
+                        cuCmulf(regM[resIdxM], regN[resIdxN])
+                    );
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    // 3. SMEM -> GMEM Write Phase
+    #pragma unroll
+    for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
+        #pragma unroll
+        for (uint resIdxN = 0; resIdxN < TN; ++resIdxN) {
+            int g_row = cRow * BM + threadRow * TM + resIdxM;
+            int g_col = cCol * BN + threadCol * TN + resIdxN;
+            C[g_row * N + g_col] = threadResults[resIdxM * TN + resIdxN];
+        }
+    }
 }				 			 	    	 		   			 	      
