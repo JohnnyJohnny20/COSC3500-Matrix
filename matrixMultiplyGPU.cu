@@ -67,7 +67,7 @@ __global__ void matrixMultiplyKernel_GPU(int N, const floatTypeCUDA* A, const fl
         	sum[i] = make_cuFloatComplex(0.0f, 0.0f);
     	}
 	
-	int numPhases = (N + TILE_DIM - 1) / TILE_DIM;
+	int numPhases = N / TILE_DIM;
 	for (int phase = 0; phase < numPhases; ++phase) {
 		
 		#pragma unroll
@@ -75,22 +75,10 @@ __global__ void matrixMultiplyKernel_GPU(int N, const floatTypeCUDA* A, const fl
 			int load_ty = ty + i * BLOCK_ROWS;
 			int k_A = phase * TILE_DIM + load_ty;
 	        	int k_B = phase * TILE_DIM + tx;
-			
-			
-			// 3. Collaborative Load A with bounds checking
-		        if (row < N && k_A < N) {
-		            s_A[load_ty][tx] = __ldg(&A[k_A * N + row]);
-		        } else {
-		            s_A[load_ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
-		        }
-			
+		        s_A[load_ty][tx] = __ldg(&A[k_A * N + row]);
+
 			int load_col = blockIdx.y * TILE_DIM + load_ty;
-		        // Collaborative Load B with bounds checking
-		        if (k_B < N && load_col < N) {
-		            s_B[load_ty][tx] = __ldg(&B[load_col * N + k_B]);
-		        } else {
-		            s_B[load_ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
-		        }
+		        s_B[load_ty][tx] = __ldg(&B[load_col * N + k_B]);
 		}
 		
 		__syncthreads();
@@ -112,8 +100,7 @@ __global__ void matrixMultiplyKernel_GPU(int N, const floatTypeCUDA* A, const fl
 	#pragma unroll
 	for (int i = 0; i < 4; ++i) {
 		int current_col = col_start + i * BLOCK_ROWS;
-		if (row < N && current_col < N) {
-        		C[current_col * N + row] = sum[i];
-    		}
+        	C[current_col * N + row] = sum[i];
+
 	}
 }				 			 	    	 		   			 	      
