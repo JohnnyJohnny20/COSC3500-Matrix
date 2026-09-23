@@ -141,7 +141,13 @@ static inline void microKernel4x8(floatType* C, int N, int i, int j, const float
 *
 * @note Implements the 5-loop cache-blocking hierarchy (NC -> KC -> MC -> NR -> MR)
 *       described in BLISlab Section tutorial.pdf 4.1 (Step 3: Blocking for Multiple Levels
-*       of Cache), parallelized using OpenMP as outlined in Section 5				 			 	    	 		   			 	      
+*       of Cache), parallelized using OpenMP as outlined in Section 5
+*
+* Notation follows BLISlab tutorial.pdf Section 4.1, Figure 3:
+*   NC, KC, MC : cache-blocking sizes for the 3 outer loops (L3/L2 panel sizes)
+*   NR, MR     : register-blocking sizes for the microkernel (accumulator tile)
+*   jc, pc, ic : outer loop indices (Loop 5, 4, 3 in Figure 3)
+*   jr, ir     : microkernel loop indices (Loop 2, 1)
 */
 int matrixMultiply(int N, const floatType* A, const floatType* B, floatType* C, int* args, int argCount) {		
 if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario without crashing.				 			 	    	 		   			 	      
@@ -187,7 +193,7 @@ if (N<=0) { return STUDENTID;}//Your code must be able to deal with N=0 scenario
                                         float* XpLocal = Xp + (i / MR) * KC * 8;
                                         packX_4xK(X, N, ic + i, pc, KC, XpLocal);
                                 }
-
+				
                                 for (int jr = 0; jr < NC; jr += NR) {
                                         const float* YpLocal = YpGlobal + (jr / NR) * KC * 16;
                 
