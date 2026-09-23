@@ -79,7 +79,7 @@ __global__ void matrixMultiplyKernel_GPU(int N, const floatTypeCUDA* A, const fl
 			
 			// 3. Collaborative Load A with bounds checking
 		        if (row < N && k_A < N) {
-		            s_A[load_ty][tx] = A[k_A * N + row]; 
+		            s_A[load_ty][tx] = __ldg(&A[k_A * N + row]);
 		        } else {
 		            s_A[load_ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
 		        }
@@ -87,7 +87,7 @@ __global__ void matrixMultiplyKernel_GPU(int N, const floatTypeCUDA* A, const fl
 			int load_col = blockIdx.y * TILE_DIM + load_ty;
 		        // Collaborative Load B with bounds checking
 		        if (k_B < N && load_col < N) {
-		            s_B[load_ty][tx] = B[load_col * N + k_B]; 
+		            s_B[load_ty][tx] = __ldg(&B[load_col * N + k_B]);
 		        } else {
 		            s_B[load_ty][tx] = make_cuFloatComplex(0.0f, 0.0f);
 		        }
