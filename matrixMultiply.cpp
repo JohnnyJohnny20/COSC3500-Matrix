@@ -19,7 +19,7 @@
 
 #include <matrixMultiply.h>
 #define STUDENTID 48448239 //DO NOT REMOVE
-#pragma GCC target("avx2,fma")
+
 
 #define MR 4
 #define NR 8
@@ -101,25 +101,30 @@ static inline void microKernel4x8(floatType* C, int N, int i, int j, const float
                 __m256 yIm = _mm256_loadu_ps(Yp + k * 16 + 8);
 
                 // Broadcast 1 Real and 1 Imag from X, then pure FMA math
+                
+		// Row 0
                 __m256 x0Re = _mm256_broadcast_ss(Xp + k * 8 + 0);
                 __m256 x0Im = _mm256_broadcast_ss(Xp + k * 8 + 4);
-                c0Re = _mm256_fmadd_ps(x0Re, yRe, c0Re); c0Re = _mm256_fnmadd_ps(x0Im, yIm, c0Re);
-                c0Im = _mm256_fmadd_ps(x0Re, yIm, c0Im); c0Im = _mm256_fmadd_ps(x0Im, yRe, c0Im);
+                c0Re = _mm256_add_ps(c0Re, _mm256_sub_ps(_mm256_mul_ps(x0Re, yRe), _mm256_mul_ps(x0Im, yIm)));
+                c0Im = _mm256_add_ps(c0Im, _mm256_add_ps(_mm256_mul_ps(x0Re, yIm), _mm256_mul_ps(x0Im, yRe)));
 
+                // Row 1
                 __m256 x1Re = _mm256_broadcast_ss(Xp + k * 8 + 1);
                 __m256 x1Im = _mm256_broadcast_ss(Xp + k * 8 + 5);
-                c1Re = _mm256_fmadd_ps(x1Re, yRe, c1Re); c1Re = _mm256_fnmadd_ps(x1Im, yIm, c1Re);
-                c1Im = _mm256_fmadd_ps(x1Re, yIm, c1Im); c1Im = _mm256_fmadd_ps(x1Im, yRe, c1Im);
+                c1Re = _mm256_add_ps(c1Re, _mm256_sub_ps(_mm256_mul_ps(x1Re, yRe), _mm256_mul_ps(x1Im, yIm)));
+                c1Im = _mm256_add_ps(c1Im, _mm256_add_ps(_mm256_mul_ps(x1Re, yIm), _mm256_mul_ps(x1Im, yRe)));
 
+                // Row 2
                 __m256 x2Re = _mm256_broadcast_ss(Xp + k * 8 + 2);
                 __m256 x2Im = _mm256_broadcast_ss(Xp + k * 8 + 6);
-                c2Re = _mm256_fmadd_ps(x2Re, yRe, c2Re); c2Re = _mm256_fnmadd_ps(x2Im, yIm, c2Re);
-                c2Im = _mm256_fmadd_ps(x2Re, yIm, c2Im); c2Im = _mm256_fmadd_ps(x2Im, yRe, c2Im);
+                c2Re = _mm256_add_ps(c2Re, _mm256_sub_ps(_mm256_mul_ps(x2Re, yRe), _mm256_mul_ps(x2Im, yIm)));
+                c2Im = _mm256_add_ps(c2Im, _mm256_add_ps(_mm256_mul_ps(x2Re, yIm), _mm256_mul_ps(x2Im, yRe)));
 
+                // Row 3
                 __m256 x3Re = _mm256_broadcast_ss(Xp + k * 8 + 3);
                 __m256 x3Im = _mm256_broadcast_ss(Xp + k * 8 + 7);
-                c3Re = _mm256_fmadd_ps(x3Re, yRe, c3Re); c3Re = _mm256_fnmadd_ps(x3Im, yIm, c3Re);
-                c3Im = _mm256_fmadd_ps(x3Re, yIm, c3Im); c3Im = _mm256_fmadd_ps(x3Im, yRe, c3Im);
+                c3Re = _mm256_add_ps(c3Re, _mm256_sub_ps(_mm256_mul_ps(x3Re, yRe), _mm256_mul_ps(x3Im, yIm)));
+                c3Im = _mm256_add_ps(c3Im, _mm256_add_ps(_mm256_mul_ps(x3Re, yIm), _mm256_mul_ps(x3Im, yRe)));
 	}
 	interleave_and_add(c0Re, c0Im, reinterpret_cast<float*>(C + (i+0)*N + j));
 	interleave_and_add(c1Re, c1Im, reinterpret_cast<float*>(C + (i+1)*N + j));
